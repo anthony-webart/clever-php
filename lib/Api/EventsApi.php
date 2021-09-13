@@ -353,14 +353,20 @@ class EventsApi
      * @param  string $ending_before ending_before (optional)
      * @param  string $school school (optional)
      * @param  string[] $record_type record_type (optional)
+     * @param  bool $returnSkipped
      *
      * @throws \Clever\ApiException on non-2xx response
      * @throws \InvalidArgumentException
      * @return \Clever\Model\EventsResponse
      */
-    public function getEvents($limit = null, $starting_after = null, $ending_before = null, $school = null, $record_type = null)
+    public function getEvents($limit = null, $starting_after = null, $ending_before = null, $school = null, $record_type = null, $returnSkipped = false)
     {
-        list($response) = $this->getEventsWithHttpInfo($limit, $starting_after, $ending_before, $school, $record_type);
+        list($response, $statusCode, $headers, $skippedItems) = $this->getEventsWithHttpInfo($limit, $starting_after, $ending_before, $school, $record_type);
+
+        if ($returnSkipped) {
+            return [$response, $skippedItems];
+        }
+
         return $response;
     }
 
@@ -419,10 +425,23 @@ class EventsApi
                 }
             }
 
+            $skippedItems = [];
+            if ($response->getStatusCode() === 200) {
+                $content->data = array_filter($content->data, function ($item) use (&$skippedItems) {
+                    if (substr($item->data->type, 0, 9) === 'sections.' && (!$item->data->data->object->id || !$item->data->data->object->grade)) {
+                        $skippedItems[] = $item;
+                        return false;
+                    }
+
+                    return true;
+                });
+            }
+
             return [
                 ObjectSerializer::deserialize($content, $returnType, []),
                 $response->getStatusCode(),
-                $response->getHeaders()
+                $response->getHeaders(),
+                $skippedItems,
             ];
 
         } catch (ApiException $e) {
